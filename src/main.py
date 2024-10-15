@@ -11,99 +11,51 @@ from .window import MainWindow
 from .shortcuts import Shortcuts
 from .thread_editing import ThreadEditing
 from .extension import Extension
+import logging
 
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Move CSS to a separate file (src/style.css) for better organization.
 
 
 class MyApp(Adw.Application):
-    def __init__(self, version, **kwargs):
-        self.version = version
+    def __init__(self, version: str, **kwargs):
+        self.version: str = version
         super().__init__(**kwargs)
-        css = '''
-        .code{
-        background-color: rgb(38,38,38);
-        }
-
-        .code .sourceview text{
-            background-color: rgb(38,38,38);
-        }
-        .code .sourceview border gutter{
-            background-color: rgb(38,38,38);
-        }
-        .sourceview{
-            color: rgb(192,191,188);
-        }
-        .copy-action{
-            color:rgb(255,255,255);
-            background-color: rgb(38,162,105);
-        }
-        .large{
-            -gtk-icon-size:100px;
-        }
-        .empty-folder{
-            font-size:25px;
-            font-weight:800;
-            -gtk-icon-size:120px;
-        }
-        .user{
-            background-color: rgba(61, 152, 255,0.03);
-        }
-        .assistant{
-            background-color: rgba(184, 134, 17,0.02);
-        }
-        .done{
-            background-color: rgba(33, 155, 98,0.02);
-        }
-        .failed{
-            background-color: rgba(254, 31, 41,0.02);
-        }
-        .file{
-            background-color: rgba(222, 221, 218,0.03);
-        }
-        .folder{
-            background-color: rgba(189, 233, 255,0.03);
-        }
-        .message-warning{
-            background-color: rgba(184, 134, 17,0.02);
-        }
-        .transparent{
-            background-color: rgba(0,0,0,0);
-        }
-        .chart{
-            background-color: rgba(61, 152, 255,0.25);
-        }
-        .right-angles{
-            border-radius: 0;
-        }
-        .image{
-            -gtk-icon-size:400px;
-        }
-        '''
-        css_provider = Gtk.CssProvider()
-        css_provider.load_from_data(css, -1)
-        Gtk.StyleContext.add_provider_for_display(
-            Gdk.Display.get_default(),
-            css_provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )
+        self._load_css() #Load CSS from separate file
+        self._create_actions()
         self.connect('activate', self.on_activate)
-        action = Gio.SimpleAction.new("about", None)
-        action.connect('activate', self.on_about_action)
-        self.add_action(action)
-        action = Gio.SimpleAction.new("shortcuts", None)
-        action.connect('activate', self.on_shortcuts_action)
-        self.add_action(action)
-        action = Gio.SimpleAction.new("settings", None)
-        action.connect('activate', self.settings_action)
-        self.add_action(action)
-        action = Gio.SimpleAction.new("thread_editing", None)
-        action.connect('activate', self.thread_editing_action)
-        self.add_action(action)
-        action = Gio.SimpleAction.new("extension", None)
-        action.connect('activate', self.extension_action)
-        self.add_action(action)
 
-    def create_action(self, name, callback, shortcuts=None):
+    def _load_css(self):
+        """Loads CSS from a separate file."""
+        css_path = os.path.join(os.path.dirname(__file__), "style.css")
+        if os.path.exists(css_path):
+            css_provider = Gtk.CssProvider()
+            try:
+                css_provider.load_from_path(css_path)
+                Gtk.StyleContext.add_provider_for_display(
+                    Gdk.Display.get_default(),
+                    css_provider,
+                    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+                )
+            except Exception as e:
+                logging.error(f"Error loading CSS: {e}")
+
+
+    def _create_actions(self):
+        """Creates application actions."""
+        self.create_action('about', self.on_about_action, ['<primary>a'])
+        self.create_action('shortcuts', self.on_shortcuts_action, ['<primary>h'])
+        self.create_action('settings', self.settings_action, ['<primary>s'])
+        self.create_action('thread_editing', self.thread_editing_action, ['<primary>e'])
+        self.create_action('extension', self.extension_action, ['<primary>x'])
+        self.create_action('reload_chat', self.reload_chat, ['<primary>r'])
+        self.create_action('reload_folder', self.reload_folder, ['<primary>e'])
+        self.create_action('new_chat', self.new_chat, ['<primary>t'])
+
+
+    def create_action(self, name: str, callback: Callable, shortcuts: List[str] | None = None):
         action = Gio.SimpleAction.new(name, None)
         action.connect("activate", callback)
         self.add_action(action)
@@ -122,10 +74,14 @@ class MyApp(Adw.Application):
                         version=self.version,
                         issue_url='https://github.com/qwersyk/Newelle/issues',
                         website='https://github.com/qwersyk/Newelle',
-                        developers=['Yehor Hliebov  https://github.com/qwersyk',"Francesco Caracciolo https://github.com/FrancescoCaracciolo"],
+                        developers=['Yehor Hliebov  https://github.com/qwersyk',
+                                    "Francesco Caracciolo https://github.com/FrancescoCaracciolo"],
                         documenters=["Francesco Caracciolo https://github.com/FrancescoCaracciolo"],
                         designers=["Nokse22 https://github.com/Nokse22"],
-                        translator_credits="\n".join(["Amine Saoud (Arabic) https://github.com/amiensa","Heimen Stoffels (Dutch) https://github.com/Vistaus","Albano Battistella (Italian) https://github.com/albanobattistella"]),
+                        translator_credits="\n".join(
+                            ["Amine Saoud (Arabic) https://github.com/amiensa",
+                             "Heimen Stoffels (Dutch) https://github.com/Vistaus",
+                             "Albano Battistella (Italian) https://github.com/albanobattistella"]),
                         copyright='© 2024 qwersyk').present()
 
     def thread_editing_action(self, *a):
@@ -138,18 +94,23 @@ class MyApp(Adw.Application):
         settings.connect("close-request", self.close_settings)
         self.settingswindow = settings
 
-    def close_settings(self, *a):
+    def close_settings(self, *a) -> bool:
         settings = Gio.Settings.new('io.github.qwersyk.Newelle')
-        settings.set_int("chat", self.win.chat_id)
-        settings.set_string("path", os.path.normpath(self.win.main_path))
-        self.win.update_settings()
-        self.settingswindow.destroy()
-        return True
+        try:
+            settings.set_int("chat", self.win.chat_id)
+            settings.set_string("path", os.path.normpath(self.win.main_path))
+            self.win.update_settings()
+            self.settingswindow.destroy()
+            return True
+        except Exception as e:
+            logging.error(f"Error closing settings: {e}")
+            return False
 
     def extension_action(self, *a):
         extension = Extension(self)
         extension.present()
-    def close_window(self, *a):
+
+    def close_window(self, *a) -> bool:
         if all(element.poll() is not None for element in self.win.streams):
             return False
         else:
@@ -167,43 +128,45 @@ class MyApp(Adw.Application):
             dialog.connect("response", self.close_message)
             dialog.present()
             return True
-    def close_message(self,a,status):
-        if status=="close":
+
+    def close_message(self, a: object, status: str):
+        if status == "close":
             for i in self.win.streams:
                 i.terminate()
             self.win.destroy()
-    def on_activate(self, app):
+
+    def on_activate(self, app: object):
         self.win = MainWindow(application=app)
         self.win.connect("close-request", self.close_window)
         self.win.present()
 
-    def reload_chat(self,*a):
+    def reload_chat(self, *a):
         self.win.show_chat()
         self.win.notification_block.add_toast(
-                Adw.Toast(title=_('Chat is rebooted')))
+            Adw.Toast(title=_('Chat is rebooted')))
 
-    def reload_folder(self,*a):
+    def reload_folder(self, *a):
         self.win.update_folder()
         self.win.notification_block.add_toast(
-                Adw.Toast(title=_('Folder is rebooted')))
+            Adw.Toast(title=_('Folder is rebooted')))
 
-    def new_chat(self,*a):
+    def new_chat(self, *a):
         self.win.new_chat(None)
         self.win.notification_block.add_toast(
-                Adw.Toast(title=_('Chat is created')))
+            Adw.Toast(title=_('Chat is created')))
 
     def do_shutdown(self):
-        self.win.save_chat()
-        settings = Gio.Settings.new('io.github.qwersyk.Newelle')
-        settings.set_int("chat", self.win.chat_id)
-        settings.set_string("path", os.path.normpath(self.win.main_path))
-        self.win.stream_number_variable += 1
-        Gtk.Application.do_shutdown(self)
+        try:
+            self.win.save_chat()
+            settings = Gio.Settings.new('io.github.qwersyk.Newelle')
+            settings.set_int("chat", self.win.chat_id)
+            settings.set_string("path", os.path.normpath(self.win.main_path))
+            self.win.stream_number_variable += 1
+            Gtk.Application.do_shutdown(self)
+        except Exception as e:
+            logging.error(f"Error during shutdown: {e}")
 
 
-def main(version):
-    app = MyApp(application_id="io.github.qwersyk.Newelle", version = version)
-    app.create_action('reload_chat', app.reload_chat, ['<primary>r'])
-    app.create_action('reload_folder', app.reload_folder, ['<primary>e'])
-    app.create_action('new_chat', app.new_chat, ['<primary>t'])
+def main(version: str):
+    app = MyApp(application_id="io.github.qwersyk.Newelle", version=version)
     app.run(sys.argv)

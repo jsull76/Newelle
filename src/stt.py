@@ -2,12 +2,16 @@ from abc import abstractmethod
 from subprocess import check_output
 import os, sys, json
 import importlib
-from typing import Any
+from typing import Any, Callable
 import pyaudio
 import wave
 import speech_recognition as sr
 from .extra import find_module, install_module
 from .handler import Handler
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class AudioRecorder:
     """Record audio"""
@@ -22,75 +26,81 @@ class AudioRecorder:
     def start_recording(self):
         self.recording = True
         self.frames = []
-        p = pyaudio.PyAudio()
-        stream = p.open(format=self.sample_format,
-                        channels=self.channels,
-                        rate=self.sample_rate,
-                        frames_per_buffer=self.chunk_size,
-                        input=True)
-        while self.recording:
-            data = stream.read(self.chunk_size)
-            self.frames.append(data)
-        stream.stop_stream()
-        stream.close()
-        p.terminate()
+        try:
+            p = pyaudio.PyAudio()
+            stream = p.open(format=self.sample_format,
+                            channels=self.channels,
+                            rate=self.sample_rate,
+                            frames_per_buffer=self.chunk_size,
+                            input=True)
+            while self.recording:
+                data = stream.read(self.chunk_size)
+                self.frames.append(data)
+            stream.stop_stream()
+            stream.close()
+            p.terminate()
+        except Exception as e:
+            logging.error(f"Error during recording: {e}")
+            self.recording = False
 
-    def stop_recording(self, output_file):
+    def stop_recording(self, output_file: str):
         self.recording = False
-        p = pyaudio.PyAudio()
-        wf = wave.open(output_file, 'wb')
-        wf.setnchannels(self.channels)
-        wf.setsampwidth(p.get_sample_size(self.sample_format))
-        wf.setframerate(self.sample_rate)
-        wf.writeframes(b''.join(self.frames))
-        wf.close()
-        p.terminate()
+        try:
+            p = pyaudio.PyAudio()
+            wf = wave.open(output_file, 'wb')
+            wf.setnchannels(self.channels)
+            wf.setsampwidth(p.get_sample_size(self.sample_format))
+            wf.setframerate(self.sample_rate)
+            wf.writeframes(b''.join(self.frames))
+            wf.close()
+            p.terminate()
+        except Exception as e:
+            logging.error(f"Error saving recording: {e}")
 
 
 class STTHandler(Handler):
     """Every STT Handler should extend this class"""
-    key = ""
-    schema_key = "stt-settings"
-    
+    key: str = ""
+    schema_key: str = "stt-settings"
+
     def is_installed(self) -> bool:
-        """If the handler is installed"""
         for module in self.get_extra_requirements():
             if find_module(module) is None:
                 return False
         return True
 
     @abstractmethod
-    def recognize_file(self, path) -> str | None:
+    def recognize_file(self, path: str) -> str | None:
         """Recognize a given audio file"""
         pass
 
+
 class SphinxHandler(STTHandler):
-    key = "Sphinx"
-    
+    key: str = "Sphinx"
+
     @staticmethod
-    def get_extra_requirements() -> list:
+    def get_extra_requirements() -> List[str]:
         return ["pocketsphinx"]
 
-    def recognize_file(self, path):
+    def recognize_file(self, path: str) -> str | None:
         r = sr.Recognizer()
-        with sr.AudioFile(path) as source:
-            audio = r.record(source)
-
         try:
+            with sr.AudioFile(path) as source:
+                audio = r.record(source)
             res = r.recognize_sphinx(audio)
+            return res
         except sr.UnknownValueError:
-            res = _("Could not understand the audio")
+            logging.info("Could not understand audio")
+            return _("Could not understand the audio")
         except Exception as e:
-            print(e)
+            logging.error(f"Error recognizing audio with Sphinx: {e}")
             return None
-        return res
 
 
 class GoogleSRHandler(STTHandler):
-    
-    key = "google_sr"
+    key: str = "google_sr"
 
-    def get_extra_settings(self) -> list:
+    def get_extra_settings(self) -> List[Dict]:
         return [
             {
                 "key": "api",
@@ -109,29 +119,27 @@ class GoogleSRHandler(STTHandler):
             }
         ]
 
-    def recognize_file(self, path):
+    def recognize_file(self, path: str) -> str | None:
         r = sr.Recognizer()
-        with sr.AudioFile(path) as source:
-            audio = r.record(source)
-        key = self.get_setting("api")
-        language = self.get_setting("language")
         try:
-            if key == "default":
-                res = r.recognize_google(audio, language=language)
-            else:
-                res = r.recognize_google(audio, key=key, language=language)
+            with sr.AudioFile(path) as source:
+                audio = r.record(source)
+            key: str = self.get_setting("api")
+            language: str = self.get_setting("language")
+            res: str = r.recognize_google(audio, key=key if key != "default" else None, language=language)
+            return res
         except sr.UnknownValueError:
+            logging.info("Could not understand audio")
             return None
         except Exception as e:
-            print(e)
+            logging.error(f"Error recognizing audio with Google: {e}")
             return None
-        return res
+
 
 class WitAIHandler(STTHandler):
-    
-    key = "witai"
-    
-    def get_extra_settings(self) -> list:
+    key: str = "witai"
+
+    def get_extra_settings(self) -> List[Dict]:
         return [
             {
                 "key": "api",
@@ -141,29 +149,31 @@ class WitAIHandler(STTHandler):
                 "default": ""
             },
         ]
- 
-    def recognize_file(self, path):
+
+    def recognize_file(self, path: str) -> str | None:
         r = sr.Recognizer()
-        with sr.AudioFile(path) as source:
-            audio = r.record(source)
-        key = self.get_setting("api")
         try:
-            res = r.recognize_wit(audio, key=key)
+            with sr.AudioFile(path) as source:
+                audio = r.record(source)
+            key: str = self.get_setting("api")
+            res: str = r.recognize_wit(audio, key=key)
+            return res
         except sr.UnknownValueError:
+            logging.info("Could not understand audio")
             return None
         except Exception as e:
-            print(e)
+            logging.error(f"Error recognizing audio with Wit.ai: {e}")
             return None
-        return res
 
-class VoskHandler(STTHandler): 
-    key = "vosk"
+
+class VoskHandler(STTHandler):
+    key: str = "vosk"
 
     @staticmethod
-    def get_extra_requirements() -> list:
+    def get_extra_requirements() -> List[str]:
         return ["vosk"]
 
-    def get_extra_settings(self) -> list:
+    def get_extra_settings(self) -> List[Dict]:
         return [
             {
                 "key": "path",
@@ -175,30 +185,32 @@ class VoskHandler(STTHandler):
             },
         ]
 
-    def recognize_file(self, path):
+    def recognize_file(self, path: str) -> str | None:
         from vosk import Model
         r = sr.Recognizer()
-        with sr.AudioFile(path) as source:
-            audio = r.record(source)
-        path = self.get_setting("path")
-        r.vosk_model = Model(path)
         try:
-            res = json.loads(r.recognize_vosk(audio))["text"]
+            with sr.AudioFile(path) as source:
+                audio = r.record(source)
+            path: str = self.get_setting("path")
+            r.vosk_model = Model(path)
+            res: str = json.loads(r.recognize_vosk(audio))["text"]
+            return res
         except sr.UnknownValueError:
+            logging.info("Could not understand audio")
             return None
         except Exception as e:
-            print(e)
+            logging.error(f"Error recognizing audio with Vosk: {e}")
             return None
-        return res
 
-class WhisperAPIHandler(STTHandler):    
-    key = "whisperapi"
+
+class WhisperAPIHandler(STTHandler):
+    key: str = "whisperapi"
 
     @staticmethod
-    def get_extra_requirements() -> list:
+    def get_extra_requirements() -> List[str]:
         return ["openai"]
 
-    def get_extra_settings(self) -> list:
+    def get_extra_settings(self) -> List[Dict]:
         return [
             {
                 "key": "api",
@@ -216,26 +228,27 @@ class WhisperAPIHandler(STTHandler):
             },
         ]
 
-    def recognize_file(self, path):
+    def recognize_file(self, path: str) -> str | None:
         r = sr.Recognizer()
-        with sr.AudioFile(path) as source:
-            audio = r.record(source)
-        model = self.get_setting("model")
-        api = self.get_setting("api")
         try:
-            res = r.recognize_whisper_api(audio, model=model, api_key=api)
+            with sr.AudioFile(path) as source:
+                audio = r.record(source)
+            model: str = self.get_setting("model")
+            api: str = self.get_setting("api")
+            res: str = r.recognize_whisper_api(audio, model=model, api_key=api)
+            return res
         except sr.UnknownValueError:
+            logging.info("Could not understand audio")
             return None
         except Exception as e:
-            print(e)
+            logging.error(f"Error recognizing audio with Whisper API: {e}")
             return None
-        return res
+
 
 class CustomSRHandler(STTHandler):
-    
-    key = "custom_command"
+    key: str = "custom_command"
 
-    def get_extra_settings(self) -> list:
+    def get_extra_settings(self) -> List[Dict]:
         return [
             {
                 "key": "command",
@@ -248,15 +261,15 @@ class CustomSRHandler(STTHandler):
 
     @staticmethod
     def requires_sandbox_escape() -> bool:
-        """If the handler requires to run commands on the user host system"""
         return True
 
-    def recognize_file(self, path):
-        command = self.get_setting("command")
-        if command is not None:
-            res = check_output(["flatpak-spawn", "--host", "bash", "-c", command.replace("{0}", path)]).decode("utf-8")
-            return str(res)
+    def recognize_file(self, path: str) -> str | None:
+        command: str = self.get_setting("command")
+        if command:
+            try:
+                res: str = check_output(["flatpak-spawn", "--host", "bash", "-c", command.replace("{0}", path)], text=True).strip()
+                return res
+            except Exception as e:
+                logging.error(f"Error executing custom command: {e}")
+                return None
         return None
-
-
-
